@@ -1,70 +1,117 @@
 # AI Insights
 
-The AI insights plugin can provide insights, questions and follow ups on your notes, this is designed to be used with any kind of note but works espeically well with zettleskastan style permanent notes.
+An Obsidian plugin that generates insights and questions for your notes using OpenAI's language models.
 
-## Releasing new releases
+## Installation
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+Clone this repository into your vault's plugins folder:
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
-
-## Adding your plugin to the community plugin list
-
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
-
-## How to use
-
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
-
-## Manually installing the plugin
-
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
-
-## Improve code quality with eslint (optional)
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- To use eslint with this project, make sure to install eslint from terminal:
-  - `npm install -g eslint`
-- To use eslint to analyze this project use this command:
-  - `eslint main.ts`
-  - eslint will then create a report with suggestions for code improvement by file and line number.
-- If your source code is in a folder, such as `src`, you can use eslint with this command to analyze all files in that folder:
-  - `eslint ./src/`
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
+```bash
+cd /path/to/your/vault/.obsidian/plugins
+git clone https://github.com/Ekansh38/AI-Insights ai-insights
+cd ai-insights
+npm install
+npm run build
 ```
 
-If you have multiple URLs, you can also do:
+Then enable the plugin in Obsidian's Community Plugins settings.
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
-```
+## Setup
 
-## API Documentation
+1. Get an OpenAI API key from [OpenAI's platform](https://platform.openai.com/api-keys)
+2. Go to Settings → Community Plugins → AI Insights
+3. Enter your API key
 
-See https://github.com/obsidianmd/obsidian-api
+## Usage
+
+- Click the ⭐ ribbon icon to generate insights for the current note
+- Click the 🧹 eraser icon to delete insights from the current note
+- Use Command Palette: "AI Insights: Run on current note"
+
+## Settings
+
+- **OpenAI API Key**: Your API key (stored locally)
+- **Model**: Choose from gpt-4o-mini, gpt-4o, o3-mini, or custom
+- **Prompt**: Use inline prompt or external file
+- **Header**: Customize the insights header text
+
+### Models Supported
+
+- **gpt-4o-mini** - Fast and cost-effective (recommended)
+- **gpt-4o** - Most capable model
+- **gpt-4.1-mini** - Updated mini model
+- **gpt-4.1** - Updated full model  
+- **o3-mini** - Reasoning-focused model
+- **Custom** - Enter any OpenAI model ID
+
+### Prompt Modes
+
+**Inline Mode** (Default)
+- Edit prompts directly in the settings
+- Includes a thoughtful default prompt optimized for Zettelkasten workflows
+- Reset to default anytime with the reset button
+
+**File Mode**
+- Store prompts as notes in your vault
+- Perfect for sharing prompts or version control
+- Default path: `Prompts/prompt.md`
+
+## 🧠 Default Prompt
+
+The plugin comes with an intelligent default prompt designed for knowledge workers and Zettelkasten practitioners:
+
+
+### Workflow Integration
+
+1. **Daily Review**: Run insights on your daily notes to identify patterns
+2. **Literature Processing**: Use on book notes to extract atomic concepts
+3. **Project Planning**: Generate follow-up questions for project notes
+4. **Knowledge Gaps**: Identify missing connections in your knowledge base
+6. **Research Direction**: Use generated questions as starting points for new notes and deeper exploration
+7. **Note Network Growth**: Follow connection suggestions to build interconnected clusters of related concepts
+
+
+## 🔒 Privacy & Security
+
+- **Local Storage**: API keys stored locally in your vault's plugin data
+- **No Telemetry**: No usage tracking or data collection
+- **OpenAI Only**: Content sent only to OpenAI's API (respects their privacy policy)
+- **Manual Control**: You control when and what content is processed
+
+## 🚨 Troubleshooting
+
+**Plugin won't load:**
+- Ensure `main.js` and `manifest.json` are in the plugin folder
+- Check that the plugin is enabled in Community Plugins settings
+
+**API errors:**
+- Verify your OpenAI API key is correct and has credits
+- Check the status bar for specific error messages
+- Look at the developer console (Ctrl/Cmd + Shift + I) for detailed errors
+
+**No insights generated:**
+- Ensure your note has content
+- Check that the selected model is available
+- Verify prompt file exists (if using file mode)
+
+**Insights deleted accidentally:**
+- Use Obsidian's built-in version history or backups
+- The delete function only removes content after the configured header
+
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Built for the [Obsidian](https://obsidian.md) community
+- Powered by [OpenAI](https://openai.com) language models
+- Inspired by Zettelkasten methodology and knowledge management best practices
+
+---
+
+**Made with ❤️ by [Byte Colony](https://github.com/Ekansh38)**
+
+*If you find this plugin helpful, consider [supporting its development](https://github.com/Ekansh38/AI-Insights)!*
+
