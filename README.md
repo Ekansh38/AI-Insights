@@ -4,6 +4,8 @@ An Obsidian plugin that generates insights and questions for your notes using Op
 
 ## Installation
 
+You’ll need Git and npm installed on your system.
+
 Clone this repository into your vault's plugins folder:
 
 ```bash
