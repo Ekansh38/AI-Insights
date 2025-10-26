@@ -1,134 +1,199 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TFile } from "obsidian";
 
-// Remember to rename these classes and interfaces!
+type ChatAppendSettings = {
+  openaiApiKey: string;
+  model: string;
+  promptMode: "inline" | "file";
+  inlinePrompt: string;
+  promptFilePath: string;   // e.g. "Prompts/chat-append.md"
+  addHeader: boolean;
+  headerText: string;       // e.g. "## 🤖 ChatGPT"
+  maxOutputTokens: number;
+};
 
-interface MyPluginSettings {
-	mySetting: string;
+const DEFAULTS: ChatAppendSettings = {
+  openaiApiKey: "",
+  model: "gpt-4o-mini",
+  promptMode: "inline",
+  inlinePrompt: "You are a helpful writing assistant. Improve clarity and structure without changing meaning.",
+  promptFilePath: "Prompts/chat-append.md",
+  addHeader: true,
+  headerText: "## 🤖 ChatGPT Output",
+  maxOutputTokens: 800,
+};
+
+export default class ChatAppendPlugin extends Plugin {
+  settings: ChatAppendSettings;
+
+  async onload() {
+    this.settings = Object.assign({}, DEFAULTS, await this.loadData());
+
+    this.addRibbonIcon("stars", "Run prompt on current note", async () => {
+      await this.runOnActiveNote();
+    });
+
+    this.addCommand({
+      id: "chat-append-run",
+      name: "Run on current note",
+      editorCallback: async (editor: Editor) => {
+        await this.runOnActiveNote(editor);
+      },
+    });
+
+    this.addSettingTab(new ChatAppendSettingTab(this.app, this));
+  }
+
+  async runOnActiveNote(editor?: Editor) {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) { new Notice("No active note"); return; }
+
+    // Read current note content from disk (safer if we’re going to modify). 
+    // (If you only display, cachedRead is fine.) :contentReference[oaicite:6]{index=6}
+    const original = await this.app.vault.read(file);
+
+    // Resolve prompt (inline or from a file inside the vault)
+    let prompt = this.settings.inlinePrompt;
+    if (this.settings.promptMode === "file") {
+      const promptFile = this.app.vault.getAbstractFileByPath(this.settings.promptFilePath);
+      if (promptFile && promptFile instanceof TFile) {
+        prompt = await this.app.vault.read(promptFile);
+      } else {
+        new Notice(`Prompt file not found: ${this.settings.promptFilePath}`);
+        return;
+      }
+    }
+
+    // Call OpenAI Responses API
+    if (!this.settings.openaiApiKey) {
+      new Notice("Set your OpenAI API key in plugin settings.");
+      return;
+    }
+
+    let resultText = "";
+    try {
+      const res = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${this.settings.openaiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: this.settings.model,
+          input: [
+            { role: "system", content: prompt },
+            { role: "user", content: original }
+          ],
+          max_output_tokens: this.settings.maxOutputTokens
+        })
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error(`OpenAI error ${res.status}: ${errBody}`);
+      }
+      const data = await res.json();
+
+      // Responses API shape: the primary text is usually at data.output_text (helper),
+      // or in data.output[0].content[0].text depending on SDK. We fall back safely. :contentReference[oaicite:7]{index=7}
+      resultText = data.output_text 
+        ?? data?.output?.[0]?.content?.[0]?.text 
+        ?? JSON.stringify(data, null, 2);
+    } catch (e:any) {
+      console.error(e);
+      new Notice("OpenAI request failed (see console).");
+      return;
+    }
+
+    // Prepare appended block
+    const block = `${this.settings.addHeader ? `\n\n---\n${this.settings.headerText}\n` : `\n\n---\n`}${resultText}\n`;
+
+    // Prefer Editor API for the active note (guideline). :contentReference[oaicite:8]{index=8}
+    const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (editor && mdView && mdView.editor === editor) {
+      const lineCount = editor.lineCount();
+      editor.replaceRange(block, { line: lineCount, ch: 0 });
+    } else {
+      // Fallback: append via vault if editor not available
+      await this.app.vault.append(file, block);
+    }
+
+    new Notice("Appended ChatGPT output.");
+  }
+
+  async saveSettings() { await this.saveData(this.settings); }
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
-}
+class ChatAppendSettingTab extends PluginSettingTab {
+  plugin: ChatAppendPlugin;
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+  constructor(app: App, plugin: ChatAppendPlugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
 
-	async onload() {
-		await this.loadSettings();
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "Chat Append Settings" });
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
+    new Setting(containerEl)
+      .setName("OpenAI API key")
+      .setDesc("Stored locally in this vault’s plugin data.json.")
+      .addText(t => t
+        .setPlaceholder("sk-...")
+        .setValue(this.plugin.settings.openaiApiKey)
+        .onChange(async (v) => { this.plugin.settings.openaiApiKey = v.trim(); await this.plugin.saveSettings(); }));
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
+    new Setting(containerEl)
+      .setName("Model")
+      .setDesc("e.g., gpt-4o-mini (Responses API)")
+      .addText(t => t
+        .setValue(this.plugin.settings.model)
+        .onChange(async (v) => { this.plugin.settings.model = v.trim(); await this.plugin.saveSettings(); }));
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, _view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+    new Setting(containerEl)
+      .setName("Prompt source")
+      .addDropdown(d => d
+        .addOption("inline", "Inline")
+        .addOption("file", "File in vault")
+        .setValue(this.plugin.settings.promptMode)
+        .onChange(async (v: "inline" | "file") => { this.plugin.settings.promptMode = v; await this.plugin.saveSettings(); this.display(); }));
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
+    if (this.plugin.settings.promptMode === "inline") {
+      new Setting(containerEl)
+        .setName("Inline prompt")
+        .addTextArea(t => t
+          .setValue(this.plugin.settings.inlinePrompt)
+          .onChange(async (v) => { this.plugin.settings.inlinePrompt = v; await this.plugin.saveSettings(); }));
+    } else {
+      new Setting(containerEl)
+        .setName("Prompt file path")
+        .setDesc("Example: Prompts/chat-append.md")
+        .addText(t => t
+          .setValue(this.plugin.settings.promptFilePath)
+          .onChange(async (v) => { this.plugin.settings.promptFilePath = v.trim(); await this.plugin.saveSettings(); }));
+    }
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+    new Setting(containerEl)
+      .setName("Add header before output")
+      .addToggle(t => t
+        .setValue(this.plugin.settings.addHeader)
+        .onChange(async (v) => { this.plugin.settings.addHeader = v; await this.plugin.saveSettings(); }));
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
+    new Setting(containerEl)
+      .setName("Header text")
+      .addText(t => t
+        .setValue(this.plugin.settings.headerText)
+        .onChange(async (v) => { this.plugin.settings.headerText = v; await this.plugin.saveSettings(); }));
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
-
-	onunload() {
-
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const {containerEl} = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
+    new Setting(containerEl)
+      .setName("Max output tokens")
+      .addText(t => t
+        .setValue(String(this.plugin.settings.maxOutputTokens))
+        .onChange(async (v) => {
+          const n = Number(v); 
+          if (!Number.isNaN(n) && n > 0) this.plugin.settings.maxOutputTokens = n;
+          await this.plugin.saveSettings();
+        }));
+  }
 }
