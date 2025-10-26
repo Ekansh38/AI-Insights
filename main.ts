@@ -30,7 +30,49 @@ type ChatAppendSettings = {
 };
 
 const DEFAULT_PROMPT =
-`Your job is to provide, other questions, insights and other simmilar topics to explore or things to think about, basiclly identify gaps of understanding in the note.`;
+`You are an intelligent reflective assistant specialized in Zettelkasten-style thinking and Cyclecasting.
+The following content is an Obsidian note.
+Understand these note types first:
+
+Permanent note: one atomic idea, written in my own words, self-contained, meant to be linked.
+
+Book/Literature note: captures multiple concepts from a source. These are not atomic but can be split into permanent notes later.
+
+Fleeting note: quick captures that may or may not become permanent.
+
+Structure note: organizes or connects other notes.
+
+Project note: holds evolving work or context for projects.
+
+1. Gaps, Questions, and Further Exploration
+
+Identify gaps, open questions, or directions to explore that would deepen the understanding of the note.
+
+If it’s a book/literature note, focus here on conceptual gaps — not splitting into permanent notes yet.
+
+Limit to the 3–4 most valuable questions or areas of exploration.
+
+If an answer is straightforward, provide a short hint or pointer (don’t leave it blank).
+
+Avoid repeating ideas that belong to section 2.
+
+2. Usefulness, Role & Future Potential
+
+Identify what type of note this currently is.
+
+If it’s a book/literature note, explain how it could be split into atomic permanent notes later, and why that would be valuable.
+
+If it’s already permanent, evaluate its clarity, atomicity, and potential links.
+
+Suggest potential use cases (e.g., connectors, writing seeds, research foundations, Cyclecasting mid-use cases).
+
+Keep this concise but thoughtful.
+
+Tone: Reflective, intelligent, crisp.
+Always give something for both sections.
+Don’t repeat the same insight in both sections.
+Aim for clear, structured answers rather than long rambles.`;
+
 
 const DEFAULTS: ChatAppendSettings = {
   openaiApiKey: "",
@@ -63,23 +105,39 @@ export default class ChatAppendPlugin extends Plugin {
 
     this.settings = Object.assign({}, DEFAULTS, await this.loadData());
 
-    // Ribbon button with re-entry guard
+    // Ribbon: run
     this.ribbonEl = this.addRibbonIcon("stars", "Run prompt on current note", async () => {
       if (this.isRunning) { new Notice("Already running…"); return; }
       await this.runOnActiveNote();
+    });
+
+    // Ribbon: delete insights
+    this.addRibbonIcon("eraser", "Delete insights in current note", async () => {
+      if (this.isRunning) { new Notice("Already running…"); return; }
+      await this.deleteInsightsOnActiveNote();
     });
 
     // Status bar
     this.statusEl = this.addStatusBarItem();
     this.statusEl.setText("Chat Append: idle");
 
-    // Command (hotkey-able) with re-entry guard
+    // Command: run
     this.addCommand({
       id: "chat-append-run",
       name: "Run on current note",
       editorCallback: async (editor: Editor) => {
         if (this.isRunning) { new Notice("Already running…"); return; }
         await this.runOnActiveNote(editor);
+      },
+    });
+
+    // Command: delete insights
+    this.addCommand({
+      id: "chat-append-delete-insights",
+      name: "Delete insights in current note",
+      editorCallback: async () => {
+        if (this.isRunning) { new Notice("Already running…"); return; }
+        await this.deleteInsightsOnActiveNote();
       },
     });
 
@@ -98,13 +156,17 @@ export default class ChatAppendPlugin extends Plugin {
       if (loading) {
         setIcon(this.ribbonEl, "loader-2");   // built-in lucide icon
         this.ribbonEl.addClass("chat-append-spin");
-        this.statusEl?.setText("Chat Append: Running prompt…");
+        this.statusEl?.setText("Chat Append: Running…");
       } else {
         this.ribbonEl.removeClass("chat-append-spin");
         setIcon(this.ribbonEl, "stars");
         this.statusEl?.setText("Chat Append: idle");
       }
     }
+  }
+
+  private escapeRegex(s: string) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
   async runOnActiveNote(editor?: Editor) {
@@ -191,6 +253,48 @@ export default class ChatAppendPlugin extends Plugin {
     } catch (e) {
       console.error(e);
       new Notice("OpenAI request failed (see console).");
+      this.statusEl?.setText("Chat Append: error (see console)");
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
+  async deleteInsightsOnActiveNote() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) { new Notice("No active note"); return; }
+
+    const header = this.settings.headerText?.trim();
+    if (!header) { new Notice("Header text is empty in settings."); return; }
+
+    this.setLoading(true);
+    this.statusEl?.setText("Chat Append: Deleting insights…");
+
+    try {
+      const content = await this.app.vault.read(file);
+
+      // Match the header line and everything after it to EOF.
+      const pattern = new RegExp(`\\n?\\s*${this.escapeRegex(header)}\\s*\\n[\\s\\S]*$`, "m");
+
+      if (!pattern.test(content)) {
+        new Notice("No insights section found.");
+        this.statusEl?.setText("Chat Append: idle");
+        return;
+      }
+
+      if (!window.confirm(`Delete "${header}" and everything below it in this note?`)) {
+        this.statusEl?.setText("Chat Append: idle");
+        return;
+      }
+
+      const updated = content.replace(pattern, "");
+      await this.app.vault.modify(file, updated);
+
+      new Notice("Insights deleted.");
+      this.statusEl?.setText("Chat Append: done ✔");
+      window.setTimeout(() => this.statusEl?.setText("Chat Append: idle"), 2000);
+    } catch (e) {
+      console.error(e);
+      new Notice("Failed to delete insights (see console).");
       this.statusEl?.setText("Chat Append: error (see console)");
     } finally {
       this.setLoading(false);
@@ -302,6 +406,18 @@ class ChatAppendSettingTab extends PluginSettingTab {
           const n = Number(v);
           if (!Number.isNaN(n) && n > 0) this.plugin.settings.maxOutputTokens = n;
           await this.plugin.saveSettings();
+        }));
+
+    // Danger zone: delete insights from CURRENT note
+    containerEl.createEl("h3", { text: "Danger zone" });
+    new Setting(containerEl)
+      .setName("Delete insights in current note")
+      .setDesc("Removes the configured header and everything after it from the active note.")
+      .addButton(btn => btn
+        .setButtonText("Delete insights")
+        .setWarning()
+        .onClick(async () => {
+          await this.plugin.deleteInsightsOnActiveNote();
         }));
   }
 }
